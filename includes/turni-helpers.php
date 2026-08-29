@@ -164,3 +164,51 @@ function situazioneGiornalieraPlesso(array $plesso, bool $haMattina, bool $haPom
         'supera_soglia_giornaliera' => $superaSogliaGiornaliera,
     ];
 }
+
+/**
+ * Stato aggregato (3 livelli) di copertura di un plesso in un giorno, dati
+ * i minimi del plesso e il conteggio di assegnati per turno_giorno
+ * (es. ['mattina' => 2, 'pomeriggio' => 1]). Usato dalla vista Mese, dove
+ * un badge per mattina+pomeriggio separati occuperebbe troppo spazio su
+ * ~22 colonne — qui basta sapere se il giorno è a posto, parziale, o no.
+ */
+function statoGiorno(array $plesso, array $conteggiGiorno): array
+{
+    $copertoMattina = ($conteggiGiorno['mattina'] ?? 0) >= (int) $plesso['min_bidelli_mattina'];
+    $copertoPomeriggio = ($conteggiGiorno['pomeriggio'] ?? 0) >= (int) $plesso['min_bidelli_pomeriggio'];
+
+    if ($copertoMattina && $copertoPomeriggio) {
+        return ['classe' => 'badge--ok', 'testo' => 'Coperto'];
+    }
+    if (!$copertoMattina && !$copertoPomeriggio) {
+        return ['classe' => 'badge--danger', 'testo' => 'Scoperto'];
+    }
+    return ['classe' => 'badge--warn', 'testo' => 'Parziale'];
+}
+
+/**
+ * Badge ok/danger con conteggio per un singolo turno (mattina o
+ * pomeriggio), es. "Coperto 2/3" o "Sotto soglia 1/2". Usato dalle viste
+ * Giorno e Settimana (dashboard e turni.php), dove mattina e pomeriggio
+ * restano distinti invece di aggregarsi in un unico stato come in Mese.
+ */
+function badgeTurno(int $assegnati, int $minimo): array
+{
+    $ok = $assegnati >= $minimo;
+    return [
+        'classe' => $ok ? 'badge--ok' : 'badge--danger',
+        'testo' => ($ok ? 'Coperto' : 'Sotto soglia') . " {$assegnati}/{$minimo}",
+    ];
+}
+
+/**
+ * Filtra una querystring "ritorno" (usata per riportare l'utente alla
+ * vista/data corretta dopo un'azione) a un set di caratteri sicuro,
+ * altrimenti usa $default. Protezione minima: il valore arriva da
+ * GET/POST quindi è manomettibile, anche se qui il rischio pratico è
+ * basso (finisce solo dopo "Location: turni.php?..." o "index.php?...").
+ */
+function ritornoSicuro(string $ritorno, string $default): string
+{
+    return ($ritorno !== '' && preg_match('/^[a-zA-Z0-9=&%._-]*$/', $ritorno)) ? $ritorno : $default;
+}

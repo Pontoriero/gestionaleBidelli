@@ -149,8 +149,6 @@ if ($modalitaSostituto) {
     }
 }
 
-$settimana = (string) ($origine['settimana'] ?? $data);
-
 if (!$contestoValido) {
     http_response_code(400);
     die($modalitaSostituto
@@ -176,6 +174,10 @@ $lunediSettimana = (clone $dataValida)->modify('-' . ($isoGiorno - 1) . ' days')
 $venerdiSettimana = (clone $lunediSettimana)->modify('+4 days');
 $inizioSettimanaOre = $lunediSettimana->format('Y-m-d');
 $fineSettimanaOre = $venerdiSettimana->format('Y-m-d');
+
+/* ---------- Ritorno: dove torna "Annulla"/"torna alla griglia" e il redirect dopo il salvataggio ---------- */
+
+$ritorno = ritornoSicuro((string) ($origine['ritorno'] ?? ''), 'vista=settimana&settimana=' . $inizioSettimanaOre);
 
 $errori = [];
 
@@ -230,7 +232,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
         }
 
-        header('Location: turni.php?settimana=' . $settimana . '&msg=assegnato');
+        header('Location: turni.php?' . $ritorno . '&msg=assegnato');
         exit;
     }
 }
@@ -249,7 +251,7 @@ require __DIR__ . '/../includes/header.php';
 <div class="panel">
     <div class="panel__header">
         <div class="panel__title"><?= $modalitaSostituto ? 'Assegna sostituto' : 'Nuova assegnazione' ?></div>
-        <div class="panel__sub"><a href="turni.php?settimana=<?= htmlspecialchars($settimana) ?>">← torna alla griglia</a></div>
+        <div class="panel__sub"><a href="turni.php?<?= $ritorno ?>">← torna alla griglia</a></div>
     </div>
 
     <div style="padding: var(--space-6); max-width: 480px;">
@@ -284,7 +286,7 @@ require __DIR__ . '/../includes/header.php';
             <input type="hidden" name="plesso_id" value="<?= (int) $plessoId ?>">
             <input type="hidden" name="data" value="<?= htmlspecialchars($data) ?>">
             <input type="hidden" name="turno_giorno" value="<?= htmlspecialchars($turnoGiorno) ?>">
-            <input type="hidden" name="settimana" value="<?= htmlspecialchars($settimana) ?>">
+            <input type="hidden" name="ritorno" value="<?= htmlspecialchars($ritorno) ?>">
             <?php if ($modalitaSostituto): ?>
                 <input type="hidden" name="sostituto_di_turno_id" value="<?= (int) $sostitutoDiTurnoId ?>">
             <?php endif; ?>
@@ -316,7 +318,7 @@ require __DIR__ . '/../includes/header.php';
                 <button type="submit" class="btn btn--primary" <?= !$disponibili ? 'disabled' : '' ?>>
                     <i class="fa-solid fa-check"></i> <?= $modalitaSostituto ? 'Assegna sostituto' : 'Assegna' ?>
                 </button>
-                <a class="btn btn--secondary" href="turni.php?settimana=<?= htmlspecialchars($settimana) ?>">Annulla</a>
+                <a class="btn btn--secondary" href="turni.php?<?= $ritorno ?>">Annulla</a>
             </div>
         </form>
     </div>

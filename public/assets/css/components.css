@@ -304,6 +304,13 @@
     color: var(--text-primary);
 }
 
+/* ---------- Tab viste (Giorno | Settimana | Mese) ---------- */
+.view-tabs {
+    display: flex;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+}
+
 /* ---------- Selettore settimana ---------- */
 .week-nav {
     display: flex;
