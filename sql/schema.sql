@@ -37,6 +37,8 @@ CREATE TABLE bidelli (
     telefono VARCHAR(30),
     email VARCHAR(150),
     plesso_principale_id INT NULL,
+    ore_settimanali INT NOT NULL DEFAULT 36,
+    ore_straordinario_max INT NOT NULL DEFAULT 0,
     note TEXT,
     attivo TINYINT(1) NOT NULL DEFAULT 1,
     FOREIGN KEY (plesso_principale_id) REFERENCES plessi(id) ON DELETE SET NULL

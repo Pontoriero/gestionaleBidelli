@@ -20,6 +20,8 @@ $valori = [
     'telefono' => '',
     'email' => '',
     'plesso_principale_id' => '',
+    'ore_settimanali' => 36,
+    'ore_straordinario_max' => 0,
     'note' => '',
     'attivo' => 1,
 ];
@@ -49,6 +51,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $valori['telefono'] = trim($_POST['telefono'] ?? '');
     $valori['email'] = trim($_POST['email'] ?? '');
     $valori['plesso_principale_id'] = trim($_POST['plesso_principale_id'] ?? '');
+    $valori['ore_settimanali'] = trim($_POST['ore_settimanali'] ?? '');
+    $valori['ore_straordinario_max'] = trim($_POST['ore_straordinario_max'] ?? '');
     $valori['note'] = trim($_POST['note'] ?? '');
     $valori['attivo'] = isset($_POST['attivo']) ? 1 : 0;
 
@@ -72,6 +76,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errori[] = 'Plesso principale non valido.';
     }
 
+    if (!ctype_digit((string) $valori['ore_settimanali']) || (int) $valori['ore_settimanali'] <= 0) {
+        $errori[] = 'Il monte ore settimanali è obbligatorio e deve essere un numero maggiore di 0.';
+    }
+
+    if (!ctype_digit((string) $valori['ore_straordinario_max'])) {
+        $errori[] = 'Il tetto straordinari è obbligatorio e deve essere un numero maggiore o uguale a 0.';
+    }
+
     if (!$errori) {
         $parametri = [
             'nome' => $valori['nome'],
@@ -79,6 +91,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'telefono' => $valori['telefono'] !== '' ? $valori['telefono'] : null,
             'email' => $valori['email'] !== '' ? $valori['email'] : null,
             'plesso_principale_id' => $valori['plesso_principale_id'] !== '' ? (int) $valori['plesso_principale_id'] : null,
+            'ore_settimanali' => (int) $valori['ore_settimanali'],
+            'ore_straordinario_max' => (int) $valori['ore_straordinario_max'],
             'note' => $valori['note'] !== '' ? $valori['note'] : null,
             'attivo' => $valori['attivo'],
         ];
@@ -92,6 +106,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     telefono = :telefono,
                     email = :email,
                     plesso_principale_id = :plesso_principale_id,
+                    ore_settimanali = :ore_settimanali,
+                    ore_straordinario_max = :ore_straordinario_max,
                     note = :note,
                     attivo = :attivo
                  WHERE id = :id'
@@ -99,9 +115,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $pdo->prepare(
                 'INSERT INTO bidelli
-                    (nome, cognome, telefono, email, plesso_principale_id, note, attivo)
+                    (nome, cognome, telefono, email, plesso_principale_id, ore_settimanali, ore_straordinario_max, note, attivo)
                  VALUES
-                    (:nome, :cognome, :telefono, :email, :plesso_principale_id, :note, :attivo)'
+                    (:nome, :cognome, :telefono, :email, :plesso_principale_id, :ore_settimanali, :ore_straordinario_max, :note, :attivo)'
             )->execute($parametri);
         }
 
@@ -168,6 +184,19 @@ require __DIR__ . '/../includes/header.php';
                     <label for="email">Email</label>
                     <input class="form-input" type="email" id="email" name="email"
                            value="<?= htmlspecialchars($valori['email'] ?? '') ?>">
+                </div>
+
+                <div class="form-field">
+                    <label for="ore_settimanali">Ore settimanali contrattuali</label>
+                    <input class="form-input" type="number" min="1" step="1" id="ore_settimanali" name="ore_settimanali" required
+                           value="<?= htmlspecialchars((string) $valori['ore_settimanali']) ?>">
+                </div>
+
+                <div class="form-field">
+                    <label for="ore_straordinario_max">Tetto straordinari settimanali</label>
+                    <input class="form-input" type="number" min="0" step="1" id="ore_straordinario_max" name="ore_straordinario_max" required
+                           value="<?= htmlspecialchars((string) $valori['ore_straordinario_max']) ?>">
+                    <div class="form-hint">0 = nessuno straordinario consentito per questo bidello.</div>
                 </div>
 
                 <div class="form-field form-field--full">
