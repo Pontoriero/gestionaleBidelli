@@ -110,40 +110,46 @@ function superaTettoStraordinario(array $situazione, float $durataNuovoTurno): b
 
 /**
  * Soglia giornaliera oltre la quale, senza almeno 30 minuti di pausa tra
- * mattina e pomeriggio nello stesso plesso, serve autorizzazione esplicita:
- * 7 ore e 12 minuti, in minuti.
+ * mattina e pomeriggio, serve autorizzazione esplicita: 7 ore e 12 minuti,
+ * in minuti. Si applica indipendentemente da quale plesso ospita ciascun
+ * turno — un bidello può lavorare mattina in un plesso e pomeriggio in un
+ * altro, ma le ore/pausa restano calcolate sulla sua intera giornata.
  */
 const SOGLIA_GIORNALIERA_MINUTI = 432;
 
 /**
- * Quadro giornaliero di un bidello in un plesso: durata totale del giorno
- * (mattina + pomeriggio se entrambi presenti, altrimenti solo il turno
- * presente), pausa tra i due turni in minuti (null se non applicabile
- * perché è presente un solo turno), e se supera la soglia giornaliera di
- * 7h12m senza almeno 30 minuti di pausa.
+ * Quadro giornaliero di un bidello: durata totale del giorno (mattina nel
+ * suo plesso + pomeriggio nel suo, anche se diversi, o solo il turno
+ * presente), pausa fra i due in minuti (null se non applicabile perché è
+ * presente un solo turno), e se supera la soglia giornaliera di 7h12m
+ * senza almeno 30 minuti di pausa.
  *
- * Ritorna null se manca un orario del plesso necessario per un turno
- * effettivamente presente ($haMattina/$haPomeriggio true ma l'orario
- * corrispondente non è configurato) — stesso principio del calcolo
- * settimanale: mai una durata o una pausa inventata. Il chiamante deve
+ * $plessoMattina/$plessoPomeriggio: il plesso (con i suoi orari) di
+ * ciascun turno, o null se quel turno non è presente quel giorno. Quando
+ * entrambi sono presenti la pausa si calcola fra l'orario di fine mattina
+ * DEL PLESSO DELLA MATTINA e l'orario di inizio pomeriggio DEL PLESSO DEL
+ * POMERIGGIO — possono avere orari indipendenti.
+ *
+ * Ritorna null se manca un orario necessario per un turno effettivamente
+ * presente — mai una durata o una pausa inventata. Il chiamante deve
  * bloccare l'operazione con un messaggio esplicito in quel caso.
  *
  * @return array{durata_totale_giorno: float, pausa_minuti: ?int, supera_soglia_giornaliera: bool}|null
  */
-function situazioneGiornalieraPlesso(array $plesso, bool $haMattina, bool $haPomeriggio): ?array
+function situazioneGiornaliera(?array $plessoMattina, ?array $plessoPomeriggio): ?array
 {
     $durataMattina = 0.0;
     $durataPomeriggio = 0.0;
 
-    if ($haMattina) {
-        $durataMattina = durataTurnoOre($plesso, 'mattina');
+    if ($plessoMattina !== null) {
+        $durataMattina = durataTurnoOre($plessoMattina, 'mattina');
         if ($durataMattina === null) {
             return null;
         }
     }
 
-    if ($haPomeriggio) {
-        $durataPomeriggio = durataTurnoOre($plesso, 'pomeriggio');
+    if ($plessoPomeriggio !== null) {
+        $durataPomeriggio = durataTurnoOre($plessoPomeriggio, 'pomeriggio');
         if ($durataPomeriggio === null) {
             return null;
         }
@@ -152,8 +158,8 @@ function situazioneGiornalieraPlesso(array $plesso, bool $haMattina, bool $haPom
     $durataTotale = $durataMattina + $durataPomeriggio;
 
     $pausaMinuti = null;
-    if ($haMattina && $haPomeriggio) {
-        $pausaMinuti = (int) round((strtotime($plesso['orario_pomeriggio_inizio']) - strtotime($plesso['orario_mattina_fine'])) / 60);
+    if ($plessoMattina !== null && $plessoPomeriggio !== null) {
+        $pausaMinuti = (int) round((strtotime($plessoPomeriggio['orario_pomeriggio_inizio']) - strtotime($plessoMattina['orario_mattina_fine'])) / 60);
     }
 
     $superaSogliaGiornaliera = ($durataTotale * 60 > SOGLIA_GIORNALIERA_MINUTI) && ($pausaMinuti === null || $pausaMinuti < 30);

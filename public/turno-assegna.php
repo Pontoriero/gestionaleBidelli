@@ -10,18 +10,23 @@ $pdo = getConnessione();
 
 /**
  * Calcola i bidelli attivi assegnabili a ($plessoId, $data, $turnoGiorno)
- * rispettando: (a) vincolo UNIQUE bidello+data+turno_giorno, (b) vincolo
- * "un plesso al giorno" (se ha già l'altro turno_giorno quel giorno, deve
- * essere nello stesso plesso), (c) vincolo monte ore settimanale: la nuova
- * assegnazione (durata $durataTurno) non deve superare ordinario+straordinario
- * residui. Un bidello segnato assente occupa comunque lo slot (a), quindi
- * risulta escluso in automatico anche come candidato sostituto di se stesso.
+ * rispettando: (a) vincolo UNIQUE bidello+data+turno_giorno (non può avere
+ * due assegnazioni nello stesso turno_giorno, in qualsiasi plesso — questo
+ * è l'unico vincolo di disponibilità, non più legato al plesso), (b)
+ * vincolo monte ore settimanale: la nuova assegnazione (durata
+ * $durataTurno) non deve superare ordinario+straordinario residui. Un
+ * bidello segnato assente occupa comunque lo slot (a), quindi risulta
+ * escluso in automatico anche come candidato sostituto di se stesso.
  *
- * Chi ha già l'altro turno_giorno in questo stesso plesso oggi (unica
- * situazione in cui si applica la soglia giornaliera) viene escluso solo se
- * situazioneGiornalieraPlesso() non è calcolabile (orari mancanti sul turno
- * già assegnato) — mai un dato inventato. Altrimenti resta selezionabile,
- * con 'supera_soglia_giornaliera' valorizzato per mostrare/richiedere
+ * Un bidello può lavorare mattina in un plesso e pomeriggio in un altro,
+ * liberamente: nessun vincolo "un plesso al giorno". La soglia giornaliera
+ * (7h12m/pausa) resta però calcolata sull'intera giornata del bidello,
+ * sommando i due turni anche se in plessi diversi (situazioneGiornaliera()
+ * prende il plesso di ciascun turno separatamente). Chi ha già l'altro
+ * turno_giorno oggi (in un plesso qualsiasi) viene escluso solo se quella
+ * situazione non è calcolabile (orari mancanti su uno dei due plessi
+ * coinvolti) — mai un dato inventato. Altrimenti resta selezionabile, con
+ * 'supera_soglia_giornaliera' valorizzato per mostrare/richiedere
  * l'avviso, mai per escluderlo (il superamento giornaliero è solo un
  * avviso, non un blocco).
  *
@@ -41,15 +46,21 @@ function bidelliDisponibili(PDO $pdo, array $plesso, string $data, string $turno
         $occupazione[$riga['bidello_id']][$riga['turno_giorno']] = (int) $riga['plesso_id'];
     }
 
+    // Tutti i plessi con i loro orari, per risolvere la pausa cross-plesso
+    // senza una query per bidello (l'altro turno del giorno può essere in
+    // un plesso qualsiasi).
+    $plessiPerId = [];
+    foreach ($pdo->query('SELECT id, orario_mattina_inizio, orario_mattina_fine, orario_pomeriggio_inizio, orario_pomeriggio_fine FROM plessi')->fetchAll() as $p) {
+        $plessiPerId[(int) $p['id']] = $p;
+    }
+    $plessiPerId[$plessoId] = $plesso;
+
     $altroTurno = $turnoGiorno === 'mattina' ? 'pomeriggio' : 'mattina';
 
     $risultato = [];
     foreach ($bidelli as $b) {
         $occ = $occupazione[$b['id']] ?? [];
         if (isset($occ[$turnoGiorno])) {
-            continue;
-        }
-        if (isset($occ[$altroTurno]) && $occ[$altroTurno] !== $plessoId) {
             continue;
         }
 
@@ -66,14 +77,14 @@ function bidelliDisponibili(PDO $pdo, array $plesso, string $data, string $turno
             continue;
         }
 
-        $haAltroTurnoQuiOggi = isset($occ[$altroTurno]);
-        $haMattina = $turnoGiorno === 'mattina' ? true : $haAltroTurnoQuiOggi;
-        $haPomeriggio = $turnoGiorno === 'pomeriggio' ? true : $haAltroTurnoQuiOggi;
-        $situazioneGiorno = situazioneGiornalieraPlesso($plesso, $haMattina, $haPomeriggio);
+        $plessoAltroTurno = isset($occ[$altroTurno]) ? ($plessiPerId[$occ[$altroTurno]] ?? null) : null;
+        $plessoMattina = $turnoGiorno === 'mattina' ? $plesso : $plessoAltroTurno;
+        $plessoPomeriggio = $turnoGiorno === 'pomeriggio' ? $plesso : $plessoAltroTurno;
+        $situazioneGiorno = situazioneGiornaliera($plessoMattina, $plessoPomeriggio);
 
         if ($situazioneGiorno === null) {
-            // Impossibile calcolare la pausa (orari mancanti sul turno già
-            // assegnato a questo plesso): escludo per sicurezza, non invento.
+            // Impossibile calcolare la pausa (orari mancanti su uno dei due
+            // plessi coinvolti oggi): escludo per sicurezza, non invento.
             continue;
         }
 
@@ -191,7 +202,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $idDisponibili = array_column($disponibiliPost, 'id');
 
     if ($bidelloId <= 0 || !in_array($bidelloId, $idDisponibili, true)) {
-        $errori[] = 'Il bidello selezionato non è (più) disponibile per questo turno (occupato altrove, vincolo plesso/giorno, tetto straordinari settimanale, o pausa giornaliera non calcolabile). Riprova.';
+        $errori[] = 'Il bidello selezionato non è (più) disponibile per questo turno (già occupato in questo turno_giorno, tetto straordinari settimanale superato, o pausa giornaliera non calcolabile). Riprova.';
     }
 
     if (!$errori) {
@@ -310,7 +321,7 @@ require __DIR__ . '/../includes/header.php';
                     <?php endif; ?>
                 </select>
                 <?php if (!$disponibili): ?>
-                    <div class="form-hint">Tutti i bidelli attivi sono già assegnati altrove in questo turno, impegnati nell'altro turno dello stesso giorno in un plesso diverso, senza margine ore (ordinario + straordinario) sufficiente, o con pausa giornaliera non calcolabile (orari plesso mancanti sul turno già assegnato).</div>
+                    <div class="form-hint">Tutti i bidelli attivi sono già assegnati altrove in questo turno_giorno, senza margine ore (ordinario + straordinario) sufficiente, o con pausa giornaliera non calcolabile (orari plesso mancanti su un turno già assegnato).</div>
                 <?php endif; ?>
             </div>
 
