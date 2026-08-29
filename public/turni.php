@@ -29,6 +29,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['azione'] ?? '') === 'segna
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['azione'] ?? '') === 'elimina_turno') {
+    richiediRuoloDsga();
+
+    $settimanaRedirect = (string) ($_POST['settimana'] ?? '');
+    verificaCsrfOFallisci('turni.php?settimana=' . $settimanaRedirect . '&msg=errore');
+
+    $turnoId = (int) ($_POST['id'] ?? 0);
+
+    if ($turnoId <= 0) {
+        header('Location: turni.php?settimana=' . $settimanaRedirect . '&msg=errore');
+        exit;
+    }
+
+    $esito = eliminaSeSenzaDipendenze($pdo, 'turni', 'turni', 'sostituto_di_turno_id', $turnoId);
+
+    header('Location: turni.php?settimana=' . $settimanaRedirect . '&msg=' . ($esito === 'ha_dipendenze' ? 'ha_sostituto' : $esito));
+    exit;
+}
+
 /* ---------- Calcolo settimana selezionata (lunedì-venerdì) ---------- */
 
 $parametroSettimana = $_GET['settimana'] ?? null;
@@ -101,6 +120,8 @@ function contaCopertura(array $righe): int
 $messaggi = [
     'assegnato'       => ['tipo' => 'ok', 'testo' => 'Assegnazione salvata correttamente.'],
     'segnato_assente' => ['tipo' => 'ok', 'testo' => 'Turno segnato come assente.'],
+    'eliminato'       => ['tipo' => 'ok', 'testo' => 'Assegnazione eliminata correttamente.'],
+    'ha_sostituto'    => ['tipo' => 'danger', 'testo' => 'Impossibile eliminare: esiste una sostituzione collegata. Elimina prima il turno sostituto.'],
     'errore'          => ['tipo' => 'danger', 'testo' => 'Richiesta non valida o turno non più nello stato atteso. Riprova.'],
 ];
 $msg = $messaggi[$_GET['msg'] ?? ''] ?? null;
@@ -182,25 +203,35 @@ require __DIR__ . '/../includes/header.php';
                                                     ?>
                                                     <span class="<?= $classeChip ?>" title="<?= htmlspecialchars($riga['nome'] . ' ' . $riga['cognome'] . ' — ' . ucfirst($riga['stato'])) ?>">
                                                         <?= htmlspecialchars($riga['cognome'] . ' ' . mb_substr($riga['nome'], 0, 1) . '.') ?>
-                                                        <?php if (isDsga() && $riga['stato'] === 'pianificato'): ?>
+                                                        <?php if (isDsga()): ?>
                                                             <span class="chip__azioni">
+                                                                <?php if ($riga['stato'] === 'pianificato'): ?>
+                                                                    <form class="inline-form" method="post" action="turni.php"
+                                                                          onsubmit="return confirm('Segnare assente ' + <?= htmlspecialchars(json_encode($riga['nome'] . ' ' . $riga['cognome']), ENT_QUOTES) ?> + '?');">
+                                                                        <input type="hidden" name="azione" value="segna_assente">
+                                                                        <input type="hidden" name="id" value="<?= (int) $riga['id'] ?>">
+                                                                        <input type="hidden" name="settimana" value="<?= $lunedi->format('Y-m-d') ?>">
+                                                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generaCsrfToken()) ?>">
+                                                                        <button type="submit" title="Segna assente">
+                                                                            <i class="fa-solid fa-user-slash"></i>
+                                                                        </button>
+                                                                    </form>
+                                                                <?php elseif ($riga['stato'] === 'assente' && !isset($idsConSostituto[$riga['id']])): ?>
+                                                                    <a href="turno-assegna.php?sostituto_di_turno_id=<?= (int) $riga['id'] ?>&settimana=<?= $lunedi->format('Y-m-d') ?>"
+                                                                       title="Assegna sostituto">
+                                                                        <i class="fa-solid fa-arrows-rotate"></i>
+                                                                    </a>
+                                                                <?php endif; ?>
                                                                 <form class="inline-form" method="post" action="turni.php"
-                                                                      onsubmit="return confirm('Segnare assente ' + <?= htmlspecialchars(json_encode($riga['nome'] . ' ' . $riga['cognome']), ENT_QUOTES) ?> + '?');">
-                                                                    <input type="hidden" name="azione" value="segna_assente">
+                                                                      onsubmit="return confirm('Eliminare l\'assegnazione di ' + <?= htmlspecialchars(json_encode($riga['nome'] . ' ' . $riga['cognome']), ENT_QUOTES) ?> + '?');">
+                                                                    <input type="hidden" name="azione" value="elimina_turno">
                                                                     <input type="hidden" name="id" value="<?= (int) $riga['id'] ?>">
                                                                     <input type="hidden" name="settimana" value="<?= $lunedi->format('Y-m-d') ?>">
                                                                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generaCsrfToken()) ?>">
-                                                                    <button type="submit" title="Segna assente">
-                                                                        <i class="fa-solid fa-user-slash"></i>
+                                                                    <button type="submit" title="Elimina assegnazione">
+                                                                        <i class="fa-solid fa-xmark"></i>
                                                                     </button>
                                                                 </form>
-                                                            </span>
-                                                        <?php elseif (isDsga() && $riga['stato'] === 'assente' && !isset($idsConSostituto[$riga['id']])): ?>
-                                                            <span class="chip__azioni">
-                                                                <a href="turno-assegna.php?sostituto_di_turno_id=<?= (int) $riga['id'] ?>&settimana=<?= $lunedi->format('Y-m-d') ?>"
-                                                                   title="Assegna sostituto">
-                                                                    <i class="fa-solid fa-arrows-rotate"></i>
-                                                                </a>
                                                             </span>
                                                         <?php endif; ?>
                                                     </span>
