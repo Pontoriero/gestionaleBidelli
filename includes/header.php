@@ -34,6 +34,7 @@ $iniziali = strtoupper(mb_substr($_SESSION['nome'] ?? '?', 0, 1) . mb_substr($_S
     <link rel="stylesheet" href="assets/css/style.css">
     <link rel="stylesheet" href="assets/css/layout.css">
     <link rel="stylesheet" href="assets/css/components.css">
+    <link rel="stylesheet" href="assets/css/print.css">
 </head>
 <body>
 <div class="app">
@@ -97,3 +98,6 @@ $iniziali = strtoupper(mb_substr($_SESSION['nome'] ?? '?', 0, 1) . mb_substr($_S
         </header>
 
         <div class="content">
+            <div class="print-header">
+                <strong>Gestione Turni — Istituto Pertini</strong> — <?= htmlspecialchars($paginaTitolo) ?> — stampato il <?= date('d/m/Y') ?>
+            </div>

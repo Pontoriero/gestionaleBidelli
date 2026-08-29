@@ -1,0 +1,73 @@
+.print-header {
+    display: none;
+}
+
+@media print {
+    .sidebar,
+    .topbar,
+    .view-tabs,
+    .page-actions,
+    .form-actions,
+    .chip__azioni,
+    .turno-block__add,
+    .btn,
+    .no-print {
+        display: none !important;
+    }
+
+    html, body {
+        background: #ffffff;
+    }
+
+    .app {
+        display: block;
+    }
+
+    .main {
+        width: 100%;
+    }
+
+    .content {
+        padding: 0;
+    }
+
+    .print-header {
+        display: block;
+        margin-bottom: var(--space-5);
+        font-size: 11pt;
+        color: #000000;
+    }
+
+    .panel {
+        border: none;
+        box-shadow: none;
+        border-radius: 0;
+        margin-bottom: var(--space-6);
+    }
+
+    .panel__header {
+        border-bottom: 1px solid #999999;
+    }
+
+    .table th,
+    .table td,
+    .schedule-table th,
+    .schedule-table td {
+        border: 1px solid #999999;
+        color: #000000;
+    }
+
+    .badge {
+        border: 1px solid currentColor;
+        background: none !important;
+    }
+
+    a[href] {
+        color: #000000;
+        text-decoration: none;
+    }
+
+    @page {
+        margin: 1.5cm;
+    }
+}

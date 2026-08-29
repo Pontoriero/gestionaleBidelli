@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/crud-helpers.php';
+require_once __DIR__ . '/../includes/export-helpers.php';
 
 avviaSessione();
 richiediLogin();
@@ -40,6 +41,27 @@ $bidelli = $pdo->query(
      ORDER BY b.cognome, b.nome'
 )->fetchAll();
 
+if (($_GET['export'] ?? '') === 'csv') {
+    $righeCsv = [];
+    foreach ($bidelli as $bidello) {
+        $righeCsv[] = [
+            $bidello['cognome'],
+            $bidello['nome'],
+            $bidello['telefono'] ?? '',
+            $bidello['email'] ?? '',
+            $bidello['plesso_nome'] ?? '',
+            (int) $bidello['ore_settimanali'],
+            (int) $bidello['ore_straordinario_max'],
+            (int) $bidello['attivo'] === 1 ? 'Attivo' : 'Non attivo',
+        ];
+    }
+    esportaCSV(
+        'bidelli.csv',
+        ['Cognome', 'Nome', 'Telefono', 'Email', 'Plesso principale', 'Ore settimanali', 'Tetto straordinario', 'Stato'],
+        $righeCsv
+    );
+}
+
 $paginaTitolo = 'Bidelli';
 $paginaAttiva = 'bidelli';
 require __DIR__ . '/../includes/header.php';
@@ -51,13 +73,19 @@ require __DIR__ . '/../includes/header.php';
     </div>
 <?php endif; ?>
 
-<?php if (isDsga()): ?>
-    <div class="page-actions">
+<div class="page-actions">
+    <a class="btn btn--secondary" href="bidelli.php?export=csv">
+        <i class="fa-solid fa-file-csv"></i> Esporta CSV
+    </a>
+    <button type="button" class="btn btn--secondary" onclick="window.print()">
+        <i class="fa-solid fa-print"></i> Stampa/PDF
+    </button>
+    <?php if (isDsga()): ?>
         <a class="btn btn--primary" href="bidello-form.php">
             <i class="fa-solid fa-plus"></i> Nuovo bidello
         </a>
-    </div>
-<?php endif; ?>
+    <?php endif; ?>
+</div>
 
 <div class="panel">
     <div class="panel__header">

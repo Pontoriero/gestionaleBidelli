@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/crud-helpers.php';
 require_once __DIR__ . '/../includes/turni-helpers.php';
+require_once __DIR__ . '/../includes/export-helpers.php';
 
 avviaSessione();
 richiediLogin();
@@ -201,6 +202,48 @@ if ($vista === 'mese') {
     }
 }
 
+if (($_GET['export'] ?? '') === 'csv') {
+    $righeCsv = [];
+
+    if ($vista === 'mese') {
+        $intestazioniCsv = array_merge(['Plesso'], array_column($giorniMese, 'etichetta'));
+        foreach ($plessi as $plesso) {
+            $riga = [$plesso['nome']];
+            foreach ($giorniMese as $giorno) {
+                $stato = statoGiorno($plesso, $conteggiMese[$plesso['id']][$giorno['data']] ?? []);
+                $riga[] = $stato['testo'];
+            }
+            $righeCsv[] = $riga;
+        }
+    } else {
+        $intestazioniCsv = ['Plesso', 'Data', 'Turno', 'Bidelli assegnati', 'Copertura'];
+        foreach ($plessi as $plesso) {
+            foreach ($giorniColonne as $giorno) {
+                foreach (['mattina' => 'Mattina', 'pomeriggio' => 'Pomeriggio'] as $turnoGiorno => $etichettaTurno) {
+                    $righe = $celle[$plesso['id']][$giorno['data']][$turnoGiorno] ?? [];
+                    $minimo = (int) $plesso["min_bidelli_{$turnoGiorno}"];
+                    $badge = badgeTurno(contaCopertura($righe), $minimo);
+
+                    $nomiBidelli = array_map(
+                        static fn($r) => $r['cognome'] . ' ' . $r['nome'] . ' (' . ucfirst($r['stato']) . ')',
+                        $righe
+                    );
+
+                    $righeCsv[] = [
+                        $plesso['nome'],
+                        $giorno['data'],
+                        $etichettaTurno,
+                        implode(', ', $nomiBidelli),
+                        $badge['testo'],
+                    ];
+                }
+            }
+        }
+    }
+
+    esportaCSV('turni_' . $vista . '_' . $inizioRange . '.csv', $intestazioniCsv, $righeCsv);
+}
+
 $messaggi = [
     'assegnato'       => ['tipo' => 'ok', 'testo' => 'Assegnazione salvata correttamente.'],
     'segnato_assente' => ['tipo' => 'ok', 'testo' => 'Turno segnato come assente.'],
@@ -238,6 +281,15 @@ require __DIR__ . '/../includes/header.php';
             <i class="fa-solid fa-chevron-right"></i>
         </a>
     </div>
+</div>
+
+<div class="page-actions">
+    <a class="btn btn--secondary" href="turni.php?<?= $ritornoCorrente ?>&export=csv">
+        <i class="fa-solid fa-file-csv"></i> Esporta CSV
+    </a>
+    <button type="button" class="btn btn--secondary" onclick="window.print()">
+        <i class="fa-solid fa-print"></i> Stampa/PDF
+    </button>
 </div>
 
 <?php if ($vista === 'mese'): ?>

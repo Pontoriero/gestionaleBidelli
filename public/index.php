@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/turni-helpers.php';
+require_once __DIR__ . '/../includes/export-helpers.php';
 
 avviaSessione();
 richiediLogin();
@@ -61,6 +62,7 @@ if ($vista === 'giorno') {
 
     $inizioRange = $dataRif->format('Y-m-d');
     $fineRange = $dataRif->format('Y-m-d');
+    $vistaQuery = 'vista=giorno&data=' . $inizioRange;
 } elseif ($vista === 'mese') {
     $parametroMese = $_GET['mese'] ?? null;
     try {
@@ -87,6 +89,7 @@ if ($vista === 'giorno') {
 
     $inizioRange = $primoGiornoMese->format('Y-m-d');
     $fineRange = $ultimoGiornoMese->format('Y-m-d');
+    $vistaQuery = 'vista=mese&mese=' . $primoGiornoMese->format('Y-m');
 } else {
     $vista = 'settimana';
     $parametroSettimana = $_GET['settimana'] ?? null;
@@ -117,6 +120,7 @@ if ($vista === 'giorno') {
 
     $inizioRange = $lunediOre->format('Y-m-d');
     $fineRange = $venerdiOre->format('Y-m-d');
+    $vistaQuery = 'vista=settimana&settimana=' . $lunediOre->format('Y-m-d');
 }
 
 /* ---------- Copertura ---------- */
@@ -140,6 +144,35 @@ foreach ($stmtConteggi->fetchAll() as $r) {
     $conteggi[$r['plesso_id']][$r['data']][$r['turno_giorno']] = (int) $r['assegnati'];
 }
 
+if (($_GET['export'] ?? '') === 'csv_copertura') {
+    $righeCsv = [];
+
+    if ($vista === 'mese') {
+        $intestazioniCsv = array_merge(['Plesso'], array_column($giorniMese, 'etichetta'));
+        foreach ($plessi as $plesso) {
+            $riga = [$plesso['nome']];
+            foreach ($giorniMese as $giorno) {
+                $stato = statoGiorno($plesso, $conteggi[$plesso['id']][$giorno['data']] ?? []);
+                $riga[] = $stato['testo'];
+            }
+            $righeCsv[] = $riga;
+        }
+    } else {
+        $intestazioniCsv = ['Plesso', 'Data', 'Turno', 'Copertura'];
+        foreach ($plessi as $plesso) {
+            foreach ($giorniColonne as $giorno) {
+                $conteggiGiorno = $conteggi[$plesso['id']][$giorno['data']] ?? [];
+                foreach (['mattina' => 'Mattina', 'pomeriggio' => 'Pomeriggio'] as $turnoGiorno => $etichettaTurno) {
+                    $badge = badgeTurno($conteggiGiorno[$turnoGiorno] ?? 0, (int) $plesso["min_bidelli_{$turnoGiorno}"]);
+                    $righeCsv[] = [$plesso['nome'], $giorno['data'], $etichettaTurno, $badge['testo']];
+                }
+            }
+        }
+    }
+
+    esportaCSV('copertura_' . $vista . '_' . $inizioRange . '.csv', $intestazioniCsv, $righeCsv);
+}
+
 /* ---------- Ore bidelli — solo vista settimana (monte ore è un concetto settimanale) ---------- */
 
 if ($vista === 'settimana') {
@@ -147,6 +180,32 @@ if ($vista === 'settimana') {
         'SELECT id, nome, cognome, ore_settimanali, ore_straordinario_max
          FROM bidelli WHERE attivo = 1 ORDER BY cognome, nome'
     )->fetchAll();
+
+    if (($_GET['export'] ?? '') === 'csv_ore') {
+        $righeCsv = [];
+        foreach ($bidelliOre as $bidello) {
+            $situazione = situazioneOreSettimana(
+                $pdo,
+                (int) $bidello['id'],
+                (int) $bidello['ore_settimanali'],
+                (int) $bidello['ore_straordinario_max'],
+                $inizioRange,
+                $fineRange
+            );
+            $righeCsv[] = [
+                $bidello['cognome'] . ' ' . $bidello['nome'],
+                $situazione['ore_ordinarie_assegnate'],
+                $situazione['ore_residue_ordinarie'],
+                $situazione['ore_straordinario_assegnate'],
+                $situazione['ore_residue_straordinario'],
+            ];
+        }
+        esportaCSV(
+            'ore_bidelli_' . $inizioRange . '.csv',
+            ['Bidello', 'Ore ordinarie assegnate', 'Ore ordinarie residue', 'Ore straordinario assegnate', 'Ore straordinario residue'],
+            $righeCsv
+        );
+    }
 }
 
 function formattaOreIndex(float $ore): string
@@ -204,12 +263,23 @@ require __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
+<div class="page-actions">
+    <button type="button" class="btn btn--secondary" onclick="window.print()">
+        <i class="fa-solid fa-print"></i> Stampa/PDF
+    </button>
+</div>
+
 <div class="panel">
     <div class="panel__header">
         <div class="panel__title"><?= $vista === 'mese' ? 'Copertura mensile' : 'Copertura' ?></div>
-        <?php if ($vista === 'mese'): ?>
-            <div class="panel__sub">Vista aggregata, sola lettura — dettaglio in Turni</div>
-        <?php endif; ?>
+        <div class="panel__sub" style="display:flex; align-items:center; gap:var(--space-3);">
+            <?php if ($vista === 'mese'): ?>
+                <span>Vista aggregata, sola lettura — dettaglio in Turni</span>
+            <?php endif; ?>
+            <a class="btn btn--secondary no-print" href="index.php?<?= $vistaQuery ?>&export=csv_copertura">
+                <i class="fa-solid fa-file-csv"></i> Esporta CSV
+            </a>
+        </div>
     </div>
 
     <div style="overflow-x:auto;">
@@ -269,7 +339,12 @@ require __DIR__ . '/../includes/header.php';
     <div class="panel">
         <div class="panel__header">
             <div class="panel__title">Ore bidelli — settimana selezionata</div>
-            <div class="panel__sub"><?= count($bidelliOre) ?> bidelli attivi</div>
+            <div class="panel__sub" style="display:flex; align-items:center; gap:var(--space-3);">
+                <span><?= count($bidelliOre) ?> bidelli attivi</span>
+                <a class="btn btn--secondary no-print" href="index.php?<?= $vistaQuery ?>&export=csv_ore">
+                    <i class="fa-solid fa-file-csv"></i> Esporta CSV
+                </a>
+            </div>
         </div>
 
         <div style="overflow-x:auto;">

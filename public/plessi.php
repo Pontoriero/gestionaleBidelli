@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/crud-helpers.php';
+require_once __DIR__ . '/../includes/export-helpers.php';
 
 avviaSessione();
 richiediLogin();
@@ -39,6 +40,30 @@ $plessi = $pdo->query(
      ORDER BY nome'
 )->fetchAll();
 
+if (($_GET['export'] ?? '') === 'csv') {
+    $righeCsv = [];
+    foreach ($plessi as $plesso) {
+        $righeCsv[] = [
+            $plesso['nome'],
+            $plesso['indirizzo'] ?? '',
+            (int) $plesso['min_bidelli_mattina'],
+            (int) $plesso['min_bidelli_pomeriggio'],
+            $plesso['orario_mattina_inizio'] && $plesso['orario_mattina_fine']
+                ? substr($plesso['orario_mattina_inizio'], 0, 5) . '-' . substr($plesso['orario_mattina_fine'], 0, 5)
+                : '',
+            $plesso['orario_pomeriggio_inizio'] && $plesso['orario_pomeriggio_fine']
+                ? substr($plesso['orario_pomeriggio_inizio'], 0, 5) . '-' . substr($plesso['orario_pomeriggio_fine'], 0, 5)
+                : '',
+            (int) $plesso['attivo'] === 1 ? 'Attivo' : 'Non attivo',
+        ];
+    }
+    esportaCSV(
+        'plessi.csv',
+        ['Nome', 'Indirizzo', 'Min. mattina', 'Min. pomeriggio', 'Orario mattina', 'Orario pomeriggio', 'Stato'],
+        $righeCsv
+    );
+}
+
 $paginaTitolo = 'Plessi';
 $paginaAttiva = 'plessi';
 require __DIR__ . '/../includes/header.php';
@@ -50,13 +75,19 @@ require __DIR__ . '/../includes/header.php';
     </div>
 <?php endif; ?>
 
-<?php if (isDsga()): ?>
-    <div class="page-actions">
+<div class="page-actions">
+    <a class="btn btn--secondary" href="plessi.php?export=csv">
+        <i class="fa-solid fa-file-csv"></i> Esporta CSV
+    </a>
+    <button type="button" class="btn btn--secondary" onclick="window.print()">
+        <i class="fa-solid fa-print"></i> Stampa/PDF
+    </button>
+    <?php if (isDsga()): ?>
         <a class="btn btn--primary" href="plesso-form.php">
             <i class="fa-solid fa-plus"></i> Nuovo plesso
         </a>
-    </div>
-<?php endif; ?>
+    <?php endif; ?>
+</div>
 
 <div class="panel">
     <div class="panel__header">
