@@ -167,3 +167,29 @@ function richiediRuoloDsga(): void
         die('Accesso negato: questa pagina è riservata al DSGA.');
     }
 }
+
+/**
+ * Restituisce il token CSRF per la sessione corrente, generandolo
+ * al primo utilizzo. Da inserire come campo hidden in ogni form.
+ */
+function generaCsrfToken(): string
+{
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+
+    return $_SESSION['csrf_token'];
+}
+
+/**
+ * Verifica il token CSRF ricevuto da un form contro quello in sessione.
+ * Usa hash_equals() per confronto a tempo costante.
+ */
+function verificaCsrfToken(string $token): bool
+{
+    if (empty($_SESSION['csrf_token']) || $token === '') {
+        return false;
+    }
+
+    return hash_equals($_SESSION['csrf_token'], $token);
+}
