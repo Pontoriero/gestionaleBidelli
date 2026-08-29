@@ -409,7 +409,8 @@
     margin-left: 2px;
 }
 
-.chip__azioni button {
+.chip__azioni button,
+.chip__azioni a {
     background: none;
     border: none;
     padding: 0;
@@ -424,7 +425,8 @@
     font-size: 0.625rem;
 }
 
-.chip__azioni button:hover {
+.chip__azioni button:hover,
+.chip__azioni a:hover {
     opacity: 1;
 }
 

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/crud-helpers.php';
 
 avviaSessione();
 richiediRuoloDsga();
@@ -10,7 +11,9 @@ $pdo = getConnessione();
  * Calcola i bidelli attivi assegnabili a ($plessoId, $data, $turnoGiorno)
  * rispettando: (a) vincolo UNIQUE bidello+data+turno_giorno, (b) vincolo
  * "un plesso al giorno" (se ha già l'altro turno_giorno quel giorno,
- * deve essere nello stesso plesso).
+ * deve essere nello stesso plesso). Un bidello segnato assente occupa
+ * comunque lo slot (a), quindi risulta escluso in automatico anche come
+ * candidato sostituto di se stesso.
  */
 function bidelliDisponibili(PDO $pdo, int $plessoId, string $data, string $turnoGiorno): array
 {
@@ -38,32 +41,71 @@ function bidelliDisponibili(PDO $pdo, int $plessoId, string $data, string $turno
     }));
 }
 
-/* ---------- Validazione contesto (plesso_id, data, turno_giorno) ---------- */
+/* ---------- Validazione contesto ---------- */
 
 $origine = $_SERVER['REQUEST_METHOD'] === 'POST' ? $_POST : $_GET;
 
-$plessoId = (int) ($origine['plesso_id'] ?? 0);
-$data = (string) ($origine['data'] ?? '');
-$turnoGiorno = (string) ($origine['turno_giorno'] ?? '');
-$settimana = (string) ($origine['settimana'] ?? $data);
+$sostitutoDiTurnoId = (int) ($origine['sostituto_di_turno_id'] ?? 0);
+$modalitaSostituto = $sostitutoDiTurnoId > 0;
+$turnoOriginale = null;
+$plessoId = 0;
+$data = '';
+$turnoGiorno = '';
+$plesso = null;
+$contestoValido = false;
 
-$dataValida = DateTime::createFromFormat('Y-m-d', $data);
-$contestoValido = $plessoId > 0
-    && in_array($turnoGiorno, ['mattina', 'pomeriggio'], true)
-    && $dataValida !== false
-    && $dataValida->format('Y-m-d') === $data;
+if ($modalitaSostituto) {
+    $stmtOrig = $pdo->prepare(
+        'SELECT t.id, t.plesso_id, t.data, t.turno_giorno, t.stato, b.nome, b.cognome
+         FROM turni t JOIN bidelli b ON b.id = t.bidello_id
+         WHERE t.id = :id'
+    );
+    $stmtOrig->execute(['id' => $sostitutoDiTurnoId]);
+    $turnoOriginale = $stmtOrig->fetch();
 
-if ($contestoValido) {
-    $stmtPlesso = $pdo->prepare('SELECT id, nome, min_bidelli_mattina, min_bidelli_pomeriggio FROM plessi WHERE id = :id AND attivo = 1');
-    $stmtPlesso->execute(['id' => $plessoId]);
-    $plesso = $stmtPlesso->fetch();
-    $contestoValido = (bool) $plesso;
+    $contestoValido = $turnoOriginale
+        && $turnoOriginale['stato'] === 'assente'
+        && contaRecordCollegati($pdo, 'turni', 'sostituto_di_turno_id', $sostitutoDiTurnoId) === 0;
+
+    if ($contestoValido) {
+        $plessoId = (int) $turnoOriginale['plesso_id'];
+        $data = $turnoOriginale['data'];
+        $turnoGiorno = $turnoOriginale['turno_giorno'];
+
+        $stmtPlesso = $pdo->prepare('SELECT id, nome, min_bidelli_mattina, min_bidelli_pomeriggio FROM plessi WHERE id = :id');
+        $stmtPlesso->execute(['id' => $plessoId]);
+        $plesso = $stmtPlesso->fetch();
+        $contestoValido = (bool) $plesso;
+    }
+} else {
+    $plessoId = (int) ($origine['plesso_id'] ?? 0);
+    $data = (string) ($origine['data'] ?? '');
+    $turnoGiorno = (string) ($origine['turno_giorno'] ?? '');
+
+    $dataValidaTmp = DateTime::createFromFormat('Y-m-d', $data);
+    $contestoValido = $plessoId > 0
+        && in_array($turnoGiorno, ['mattina', 'pomeriggio'], true)
+        && $dataValidaTmp !== false
+        && $dataValidaTmp->format('Y-m-d') === $data;
+
+    if ($contestoValido) {
+        $stmtPlesso = $pdo->prepare('SELECT id, nome, min_bidelli_mattina, min_bidelli_pomeriggio FROM plessi WHERE id = :id AND attivo = 1');
+        $stmtPlesso->execute(['id' => $plessoId]);
+        $plesso = $stmtPlesso->fetch();
+        $contestoValido = (bool) $plesso;
+    }
 }
+
+$settimana = (string) ($origine['settimana'] ?? $data);
 
 if (!$contestoValido) {
     http_response_code(400);
-    die('Contesto non valido per l\'assegnazione (plesso, data o turno mancante/errato).');
+    die($modalitaSostituto
+        ? 'Turno originale non trovato, non più in stato "assente", o già dotato di un sostituto.'
+        : 'Contesto non valido per l\'assegnazione (plesso, data o turno mancante/errato).');
 }
+
+$dataValida = DateTime::createFromFormat('Y-m-d', $data);
 
 $errori = [];
 
@@ -81,15 +123,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (!$errori) {
-        $pdo->prepare(
-            'INSERT INTO turni (plesso_id, bidello_id, data, turno_giorno, stato)
-             VALUES (:plesso_id, :bidello_id, :data, :turno_giorno, \'pianificato\')'
-        )->execute([
-            'plesso_id' => $plessoId,
-            'bidello_id' => $bidelloId,
-            'data' => $data,
-            'turno_giorno' => $turnoGiorno,
-        ]);
+        if ($modalitaSostituto) {
+            $pdo->prepare(
+                "INSERT INTO turni (plesso_id, bidello_id, data, turno_giorno, stato, sostituto_di_turno_id)
+                 VALUES (:plesso_id, :bidello_id, :data, :turno_giorno, 'sostituito', :sostituto_di_turno_id)"
+            )->execute([
+                'plesso_id' => $plessoId,
+                'bidello_id' => $bidelloId,
+                'data' => $data,
+                'turno_giorno' => $turnoGiorno,
+                'sostituto_di_turno_id' => $sostitutoDiTurnoId,
+            ]);
+        } else {
+            $pdo->prepare(
+                "INSERT INTO turni (plesso_id, bidello_id, data, turno_giorno, stato)
+                 VALUES (:plesso_id, :bidello_id, :data, :turno_giorno, 'pianificato')"
+            )->execute([
+                'plesso_id' => $plessoId,
+                'bidello_id' => $bidelloId,
+                'data' => $data,
+                'turno_giorno' => $turnoGiorno,
+            ]);
+        }
 
         header('Location: turni.php?settimana=' . $settimana . '&msg=assegnato');
         exit;
@@ -102,18 +157,24 @@ $giorniItaliani = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 
 $mesiItaliani = ['', 'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 $dataFormattata = $giorniItaliani[(int) $dataValida->format('w')] . ' ' . $dataValida->format('j') . ' ' . $mesiItaliani[(int) $dataValida->format('n')] . ' ' . $dataValida->format('Y');
 
-$paginaTitolo = 'Nuova assegnazione';
+$paginaTitolo = $modalitaSostituto ? 'Assegna sostituto' : 'Nuova assegnazione';
 $paginaAttiva = 'turni';
 require __DIR__ . '/../includes/header.php';
 ?>
 
 <div class="panel">
     <div class="panel__header">
-        <div class="panel__title">Nuova assegnazione</div>
+        <div class="panel__title"><?= $modalitaSostituto ? 'Assegna sostituto' : 'Nuova assegnazione' ?></div>
         <div class="panel__sub"><a href="turni.php?settimana=<?= htmlspecialchars($settimana) ?>">← torna alla griglia</a></div>
     </div>
 
     <div style="padding: var(--space-6); max-width: 480px;">
+        <?php if ($modalitaSostituto): ?>
+            <div class="note-banner" style="margin-bottom: var(--space-6);">
+                Sostituzione di <strong><?= htmlspecialchars($turnoOriginale['nome'] . ' ' . $turnoOriginale['cognome']) ?></strong> (assente). Plesso, giorno e turno sono bloccati: uguali al turno originale.
+            </div>
+        <?php endif; ?>
+
         <?php if ($errori): ?>
             <div class="form-error" style="margin-bottom: var(--space-6);">
                 <ul>
@@ -140,9 +201,12 @@ require __DIR__ . '/../includes/header.php';
             <input type="hidden" name="data" value="<?= htmlspecialchars($data) ?>">
             <input type="hidden" name="turno_giorno" value="<?= htmlspecialchars($turnoGiorno) ?>">
             <input type="hidden" name="settimana" value="<?= htmlspecialchars($settimana) ?>">
+            <?php if ($modalitaSostituto): ?>
+                <input type="hidden" name="sostituto_di_turno_id" value="<?= (int) $sostitutoDiTurnoId ?>">
+            <?php endif; ?>
 
             <div class="form-field" style="margin-bottom: var(--space-5);">
-                <label for="bidello_id">Bidello</label>
+                <label for="bidello_id"><?= $modalitaSostituto ? 'Sostituto' : 'Bidello' ?></label>
                 <select class="form-input" id="bidello_id" name="bidello_id" required <?= !$disponibili ? 'disabled' : '' ?>>
                     <?php if (!$disponibili): ?>
                         <option value="">Nessun bidello disponibile per questo turno</option>
@@ -162,7 +226,7 @@ require __DIR__ . '/../includes/header.php';
 
             <div class="form-actions">
                 <button type="submit" class="btn btn--primary" <?= !$disponibili ? 'disabled' : '' ?>>
-                    <i class="fa-solid fa-check"></i> Assegna
+                    <i class="fa-solid fa-check"></i> <?= $modalitaSostituto ? 'Assegna sostituto' : 'Assegna' ?>
                 </button>
                 <a class="btn btn--secondary" href="turni.php?settimana=<?= htmlspecialchars($settimana) ?>">Annulla</a>
             </div>

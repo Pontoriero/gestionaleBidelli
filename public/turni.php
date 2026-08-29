@@ -85,8 +85,12 @@ $stmtTurni->execute([
 ]);
 
 $celle = [];
+$idsConSostituto = [];
 foreach ($stmtTurni->fetchAll() as $riga) {
     $celle[$riga['plesso_id']][$riga['data']][$riga['turno_giorno']][] = $riga;
+    if ($riga['sostituto_di_turno_id']) {
+        $idsConSostituto[(int) $riga['sostituto_di_turno_id']] = true;
+    }
 }
 
 function contaCopertura(array $righe): int
@@ -190,6 +194,13 @@ require __DIR__ . '/../includes/header.php';
                                                                         <i class="fa-solid fa-user-slash"></i>
                                                                     </button>
                                                                 </form>
+                                                            </span>
+                                                        <?php elseif (isDsga() && $riga['stato'] === 'assente' && !isset($idsConSostituto[$riga['id']])): ?>
+                                                            <span class="chip__azioni">
+                                                                <a href="turno-assegna.php?sostituto_di_turno_id=<?= (int) $riga['id'] ?>&settimana=<?= $lunedi->format('Y-m-d') ?>"
+                                                                   title="Assegna sostituto">
+                                                                    <i class="fa-solid fa-arrows-rotate"></i>
+                                                                </a>
                                                             </span>
                                                         <?php endif; ?>
                                                     </span>
