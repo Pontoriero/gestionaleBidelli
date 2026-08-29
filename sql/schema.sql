@@ -61,3 +61,12 @@ CREATE TABLE turni (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 ALTER TABLE turni ADD INDEX idx_copertura (plesso_id, data, turno_giorno, stato);
+
+-- Tentativi di login falliti, per blocco anti brute-force per IP
+CREATE TABLE tentativi_login (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ip VARCHAR(45) NOT NULL,
+    email VARCHAR(150),
+    creato_il DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_ip_tempo (ip, creato_il)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
