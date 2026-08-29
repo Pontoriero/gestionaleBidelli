@@ -1,7 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/crud-helpers.php';
-require_once __DIR__ . '/../includes/turni-helpers.php';
 
 avviaSessione();
 richiediLogin();
@@ -41,16 +40,6 @@ $bidelli = $pdo->query(
      ORDER BY b.cognome, b.nome'
 )->fetchAll();
 
-$oggi = new DateTime();
-$isoGiorno = (int) $oggi->format('N');
-$lunediSettimana = (clone $oggi)->modify('-' . ($isoGiorno - 1) . ' days')->format('Y-m-d');
-$venerdiSettimana = (clone $oggi)->modify('-' . ($isoGiorno - 1) . ' days')->modify('+4 days')->format('Y-m-d');
-
-function formattaOreBidelli(float $ore): string
-{
-    return rtrim(rtrim(number_format($ore, 1, '.', ''), '0'), '.');
-}
-
 $paginaTitolo = 'Bidelli';
 $paginaAttiva = 'bidelli';
 require __DIR__ . '/../includes/header.php';
@@ -85,7 +74,8 @@ require __DIR__ . '/../includes/header.php';
                     <th>Telefono</th>
                     <th>Email</th>
                     <th>Plesso principale</th>
-                    <th>Ore residue (sett. corrente)</th>
+                    <th>Ore settimanali</th>
+                    <th>Tetto straordinario</th>
                     <th>Stato</th>
                     <?php if (isDsga()): ?><th>Azioni</th><?php endif; ?>
                 </tr>
@@ -98,25 +88,8 @@ require __DIR__ . '/../includes/header.php';
                         <td><?= htmlspecialchars($bidello['telefono'] ?? '—') ?></td>
                         <td><?= htmlspecialchars($bidello['email'] ?? '—') ?></td>
                         <td><?= htmlspecialchars($bidello['plesso_nome'] ?? '—') ?></td>
-                        <td>
-                            <?php
-                            $situazione = situazioneOreSettimana(
-                                $pdo,
-                                (int) $bidello['id'],
-                                (int) $bidello['ore_settimanali'],
-                                (int) $bidello['ore_straordinario_max'],
-                                $lunediSettimana,
-                                $venerdiSettimana
-                            );
-                            ?>
-                            <?= formattaOreBidelli($situazione['ore_residue_ordinarie']) ?>h ord.
-                            <?php if ((int) $bidello['ore_straordinario_max'] > 0): ?>
-                                <span class="form-hint">+ <?= formattaOreBidelli($situazione['ore_residue_straordinario']) ?>h straord.</span>
-                            <?php endif; ?>
-                            <?php if (!$situazione['completo']): ?>
-                                <span class="form-hint" title="Alcuni turni assegnati sono su plessi con orari non configurati, non conteggiati">≈</span>
-                            <?php endif; ?>
-                        </td>
+                        <td><?= (int) $bidello['ore_settimanali'] ?>h</td>
+                        <td><?= (int) $bidello['ore_straordinario_max'] ?>h</td>
                         <td>
                             <?php if ((int) $bidello['attivo'] === 1): ?>
                                 <span class="badge badge--ok">Attivo</span>
@@ -144,7 +117,7 @@ require __DIR__ . '/../includes/header.php';
 
                 <?php if (!$bidelli): ?>
                     <tr>
-                        <td colspan="<?= isDsga() ? 8 : 7 ?>">Nessun bidello presente.</td>
+                        <td colspan="<?= isDsga() ? 9 : 8 ?>">Nessun bidello presente.</td>
                     </tr>
                 <?php endif; ?>
             </tbody>
