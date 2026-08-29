@@ -1,0 +1,4 @@
+# Blocca l'accesso diretto via browser a tutto l'albero del progetto.
+# Solo /public resta raggiungibile (vedi public/.htaccess che riapre l'accesso).
+# Protegge .env, .git, config/, includes/, sql/, scripts/ da esposizione diretta.
+Require all denied
