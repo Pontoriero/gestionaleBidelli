@@ -52,6 +52,7 @@ CREATE TABLE turni (
     data DATE NOT NULL,
     turno_giorno ENUM('mattina','pomeriggio') NOT NULL,
     stato ENUM('pianificato','assente','sostituito') NOT NULL DEFAULT 'pianificato',
+    straordinario_giornaliero_autorizzato TINYINT(1) NOT NULL DEFAULT 0,
     sostituto_di_turno_id INT NULL,
     note TEXT,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

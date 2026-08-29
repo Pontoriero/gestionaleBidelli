@@ -12,16 +12,25 @@ $pdo = getConnessione();
  * Calcola i bidelli attivi assegnabili a ($plessoId, $data, $turnoGiorno)
  * rispettando: (a) vincolo UNIQUE bidello+data+turno_giorno, (b) vincolo
  * "un plesso al giorno" (se ha già l'altro turno_giorno quel giorno, deve
- * essere nello stesso plesso), (c) vincolo monte ore: la nuova assegnazione
- * (durata $durataTurno) non deve superare ordinario+straordinario residui.
- * Un bidello segnato assente occupa comunque lo slot (a), quindi risulta
- * escluso in automatico anche come candidato sostituto di se stesso.
+ * essere nello stesso plesso), (c) vincolo monte ore settimanale: la nuova
+ * assegnazione (durata $durataTurno) non deve superare ordinario+straordinario
+ * residui. Un bidello segnato assente occupa comunque lo slot (a), quindi
+ * risulta escluso in automatico anche come candidato sostituto di se stesso.
+ *
+ * Chi ha già l'altro turno_giorno in questo stesso plesso oggi (unica
+ * situazione in cui si applica la soglia giornaliera) viene escluso solo se
+ * situazioneGiornalieraPlesso() non è calcolabile (orari mancanti sul turno
+ * già assegnato) — mai un dato inventato. Altrimenti resta selezionabile,
+ * con 'supera_soglia_giornaliera' valorizzato per mostrare/richiedere
+ * l'avviso, mai per escluderlo (il superamento giornaliero è solo un
+ * avviso, non un blocco).
  *
  * Ogni elemento del risultato include 'situazione' (da situazioneOreSettimana)
- * per mostrare le ore residue nel select.
+ * e 'supera_soglia_giornaliera' per il select e la validazione al POST.
  */
-function bidelliDisponibili(PDO $pdo, int $plessoId, string $data, string $turnoGiorno, float $durataTurno, string $inizioSettimana, string $fineSettimana): array
+function bidelliDisponibili(PDO $pdo, array $plesso, string $data, string $turnoGiorno, float $durataTurno, string $inizioSettimana, string $fineSettimana): array
 {
+    $plessoId = (int) $plesso['id'];
     $bidelli = $pdo->query('SELECT id, nome, cognome, ore_settimanali, ore_straordinario_max FROM bidelli WHERE attivo = 1 ORDER BY cognome, nome')->fetchAll();
 
     $stmt = $pdo->prepare('SELECT bidello_id, turno_giorno, plesso_id FROM turni WHERE data = :data');
@@ -57,11 +66,23 @@ function bidelliDisponibili(PDO $pdo, int $plessoId, string $data, string $turno
             continue;
         }
 
+        $haAltroTurnoQuiOggi = isset($occ[$altroTurno]);
+        $haMattina = $turnoGiorno === 'mattina' ? true : $haAltroTurnoQuiOggi;
+        $haPomeriggio = $turnoGiorno === 'pomeriggio' ? true : $haAltroTurnoQuiOggi;
+        $situazioneGiorno = situazioneGiornalieraPlesso($plesso, $haMattina, $haPomeriggio);
+
+        if ($situazioneGiorno === null) {
+            // Impossibile calcolare la pausa (orari mancanti sul turno già
+            // assegnato a questo plesso): escludo per sicurezza, non invento.
+            continue;
+        }
+
         $risultato[] = [
             'id' => (int) $b['id'],
             'nome' => $b['nome'],
             'cognome' => $b['cognome'],
             'situazione' => $situazione,
+            'supera_soglia_giornaliera' => $situazioneGiorno['supera_soglia_giornaliera'],
         ];
     }
 
@@ -164,34 +185,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $bidelloId = (int) ($_POST['bidello_id'] ?? 0);
-    $disponibiliPost = bidelliDisponibili($pdo, $plessoId, $data, $turnoGiorno, $durataTurno, $inizioSettimanaOre, $fineSettimanaOre);
+    $disponibiliPost = bidelliDisponibili($pdo, $plesso, $data, $turnoGiorno, $durataTurno, $inizioSettimanaOre, $fineSettimanaOre);
     $idDisponibili = array_column($disponibiliPost, 'id');
 
     if ($bidelloId <= 0 || !in_array($bidelloId, $idDisponibili, true)) {
-        $errori[] = 'Il bidello selezionato non è (più) disponibile per questo turno (occupato altrove, vincolo plesso/giorno, o supererebbe anche il tetto straordinari). Riprova.';
+        $errori[] = 'Il bidello selezionato non è (più) disponibile per questo turno (occupato altrove, vincolo plesso/giorno, tetto straordinari settimanale, o pausa giornaliera non calcolabile). Riprova.';
     }
 
     if (!$errori) {
+        // Autorizzazione straordinario giornaliero: mai fidarsi di un flag
+        // arrivato dal client, si ricalcola da zero usando lo stesso dato
+        // già validato server-side per questo bidello specifico.
+        $candidatoSelezionato = null;
+        foreach ($disponibiliPost as $candidato) {
+            if ($candidato['id'] === $bidelloId) {
+                $candidatoSelezionato = $candidato;
+                break;
+            }
+        }
+        $autorizzaGiornaliero = $candidatoSelezionato['supera_soglia_giornaliera'] ? 1 : 0;
+
         if ($modalitaSostituto) {
             $pdo->prepare(
-                "INSERT INTO turni (plesso_id, bidello_id, data, turno_giorno, stato, sostituto_di_turno_id)
-                 VALUES (:plesso_id, :bidello_id, :data, :turno_giorno, 'sostituito', :sostituto_di_turno_id)"
+                "INSERT INTO turni (plesso_id, bidello_id, data, turno_giorno, stato, sostituto_di_turno_id, straordinario_giornaliero_autorizzato)
+                 VALUES (:plesso_id, :bidello_id, :data, :turno_giorno, 'sostituito', :sostituto_di_turno_id, :autorizzato)"
             )->execute([
                 'plesso_id' => $plessoId,
                 'bidello_id' => $bidelloId,
                 'data' => $data,
                 'turno_giorno' => $turnoGiorno,
                 'sostituto_di_turno_id' => $sostitutoDiTurnoId,
+                'autorizzato' => $autorizzaGiornaliero,
             ]);
         } else {
             $pdo->prepare(
-                "INSERT INTO turni (plesso_id, bidello_id, data, turno_giorno, stato)
-                 VALUES (:plesso_id, :bidello_id, :data, :turno_giorno, 'pianificato')"
+                "INSERT INTO turni (plesso_id, bidello_id, data, turno_giorno, stato, straordinario_giornaliero_autorizzato)
+                 VALUES (:plesso_id, :bidello_id, :data, :turno_giorno, 'pianificato', :autorizzato)"
             )->execute([
                 'plesso_id' => $plessoId,
                 'bidello_id' => $bidelloId,
                 'data' => $data,
                 'turno_giorno' => $turnoGiorno,
+                'autorizzato' => $autorizzaGiornaliero,
             ]);
         }
 
@@ -200,7 +235,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$disponibili = bidelliDisponibili($pdo, $plessoId, $data, $turnoGiorno, $durataTurno, $inizioSettimanaOre, $fineSettimanaOre);
+$disponibili = bidelliDisponibili($pdo, $plesso, $data, $turnoGiorno, $durataTurno, $inizioSettimanaOre, $fineSettimanaOre);
 
 $giorniItaliani = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
 $mesiItaliani = ['', 'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
@@ -264,15 +299,16 @@ require __DIR__ . '/../includes/header.php';
                         <?php foreach ($disponibili as $bidello): ?>
                             <option value="<?= (int) $bidello['id'] ?>"
                                     data-nome-completo="<?= htmlspecialchars($bidello['cognome'] . ' ' . $bidello['nome']) ?>"
-                                    data-residuo-ordinario="<?= $bidello['situazione']['ore_residue_ordinarie'] ?>">
+                                    data-residuo-ordinario="<?= $bidello['situazione']['ore_residue_ordinarie'] ?>"
+                                    data-supera-giornaliero="<?= $bidello['supera_soglia_giornaliera'] ? '1' : '0' ?>">
                                 <?= htmlspecialchars($bidello['cognome'] . ' ' . $bidello['nome']) ?>
-                                (residue: <?= formattaOre($bidello['situazione']['ore_residue_ordinarie']) ?>h ord.<?php if ($bidello['situazione']['ore_residue_straordinario'] > 0): ?>, <?= formattaOre($bidello['situazione']['ore_residue_straordinario']) ?>h straord.<?php endif; ?>)
+                                (residue: <?= formattaOre($bidello['situazione']['ore_residue_ordinarie']) ?>h ord.<?php if ($bidello['situazione']['ore_residue_straordinario'] > 0): ?>, <?= formattaOre($bidello['situazione']['ore_residue_straordinario']) ?>h straord.<?php endif; ?>)<?= $bidello['supera_soglia_giornaliera'] ? ' ⚠ oltre 7h12m/giorno' : '' ?>
                             </option>
                         <?php endforeach; ?>
                     <?php endif; ?>
                 </select>
                 <?php if (!$disponibili): ?>
-                    <div class="form-hint">Tutti i bidelli attivi sono già assegnati altrove in questo turno, impegnati nell'altro turno dello stesso giorno in un plesso diverso, o senza margine ore (ordinario + straordinario) sufficiente.</div>
+                    <div class="form-hint">Tutti i bidelli attivi sono già assegnati altrove in questo turno, impegnati nell'altro turno dello stesso giorno in un plesso diverso, senza margine ore (ordinario + straordinario) sufficiente, o con pausa giornaliera non calcolabile (orari plesso mancanti sul turno già assegnato).</div>
                 <?php endif; ?>
             </div>
 
@@ -302,10 +338,20 @@ require __DIR__ . '/../includes/header.php';
             return;
         }
 
+        const nome = opt.dataset.nomeCompleto;
         const residuoOrdinario = parseFloat(opt.dataset.residuoOrdinario);
+        const superaGiornaliero = opt.dataset.superaGiornaliero === '1';
+        const motivi = [];
+
         if (durataTurno > residuoOrdinario) {
-            const nome = opt.dataset.nomeCompleto;
-            const messaggio = 'Questa assegnazione (' + durataTurno + 'h) porta ' + nome + ' in straordinario questa settimana (residuo ordinario: ' + residuoOrdinario + 'h). Confermi?';
+            motivi.push('supera il monte ore ordinario settimanale (residuo: ' + residuoOrdinario + 'h)');
+        }
+        if (superaGiornaliero) {
+            motivi.push('supera le 7h12m giornaliere senza pausa minima di 30 minuti in questo plesso');
+        }
+
+        if (motivi.length > 0) {
+            const messaggio = 'Questa assegnazione per ' + nome + ' ' + motivi.join(' e ') + '. Le ore eccedenti saranno straordinario e richiedono autorizzazione. Confermi?';
             if (!confirm(messaggio)) {
                 e.preventDefault();
             }
