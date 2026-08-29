@@ -1,0 +1,19 @@
+# Credenziali e configurazione locale
+.env
+
+# Dipendenze (se in futuro si usa Composer)
+/vendor/
+
+# Log
+*.log
+/logs/
+
+# File di sistema
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
