@@ -33,12 +33,29 @@ $messaggi = [
 ];
 $msg = $messaggi[$_GET['msg'] ?? ''] ?? null;
 
+if (($_GET['msg'] ?? '') === 'importato') {
+    $conteggioImportati = (int) ($_GET['conteggio'] ?? 0);
+    $msg = ['tipo' => 'ok', 'testo' => "Importazione completata: {$conteggioImportati} plessi creati."];
+}
+
 $plessi = $pdo->query(
     'SELECT id, nome, indirizzo, min_bidelli_mattina, min_bidelli_pomeriggio,
             orario_mattina_inizio, orario_mattina_fine, orario_pomeriggio_inizio, orario_pomeriggio_fine, attivo
      FROM plessi
      ORDER BY nome'
 )->fetchAll();
+
+if (($_GET['export'] ?? '') === 'csv' && ($_GET['template'] ?? '') === '1') {
+    // Template import: intestazioni = nomi campo grezzi (nome, min_bidelli_mattina, ...),
+    // non le etichette leggibili dell'export sotto — devono corrispondere
+    // esattamente a cosa legge plessi-importa.php.
+    esportaCSV(
+        'plessi_template.csv',
+        ['nome', 'indirizzo', 'note', 'min_bidelli_mattina', 'min_bidelli_pomeriggio',
+         'orario_mattina_inizio', 'orario_mattina_fine', 'orario_pomeriggio_inizio', 'orario_pomeriggio_fine', 'attivo'],
+        []
+    );
+}
 
 if (($_GET['export'] ?? '') === 'csv') {
     $righeCsv = [];
@@ -83,6 +100,12 @@ require __DIR__ . '/../includes/header.php';
         <i class="fa-solid fa-print"></i> Stampa/PDF
     </button>
     <?php if (isDsga()): ?>
+        <a class="btn btn--secondary" href="plessi.php?export=csv&template=1">
+            <i class="fa-solid fa-download"></i> Scarica template
+        </a>
+        <a class="btn btn--secondary" href="plessi-importa.php">
+            <i class="fa-solid fa-upload"></i> Importa CSV
+        </a>
         <a class="btn btn--primary" href="plesso-form.php">
             <i class="fa-solid fa-plus"></i> Nuovo plesso
         </a>

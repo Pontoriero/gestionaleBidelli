@@ -33,6 +33,11 @@ $messaggi = [
 ];
 $msg = $messaggi[$_GET['msg'] ?? ''] ?? null;
 
+if (($_GET['msg'] ?? '') === 'importato') {
+    $conteggioImportati = (int) ($_GET['conteggio'] ?? 0);
+    $msg = ['tipo' => 'ok', 'testo' => "Importazione completata: {$conteggioImportati} bidelli creati."];
+}
+
 $bidelli = $pdo->query(
     'SELECT b.id, b.nome, b.cognome, b.telefono, b.email, b.attivo,
             b.ore_settimanali, b.ore_straordinario_max, p.nome AS plesso_nome
@@ -40,6 +45,14 @@ $bidelli = $pdo->query(
      LEFT JOIN plessi p ON p.id = b.plesso_principale_id
      ORDER BY b.cognome, b.nome'
 )->fetchAll();
+
+if (($_GET['export'] ?? '') === 'csv' && ($_GET['template'] ?? '') === '1') {
+    esportaCSV(
+        'bidelli_template.csv',
+        ['nome', 'cognome', 'telefono', 'email', 'plesso_principale', 'note', 'ore_settimanali', 'ore_straordinario_max', 'attivo'],
+        []
+    );
+}
 
 if (($_GET['export'] ?? '') === 'csv') {
     $righeCsv = [];
@@ -81,6 +94,12 @@ require __DIR__ . '/../includes/header.php';
         <i class="fa-solid fa-print"></i> Stampa/PDF
     </button>
     <?php if (isDsga()): ?>
+        <a class="btn btn--secondary" href="bidelli.php?export=csv&template=1">
+            <i class="fa-solid fa-download"></i> Scarica template
+        </a>
+        <a class="btn btn--secondary" href="bidelli-importa.php">
+            <i class="fa-solid fa-upload"></i> Importa CSV
+        </a>
         <a class="btn btn--primary" href="bidello-form.php">
             <i class="fa-solid fa-plus"></i> Nuovo bidello
         </a>
