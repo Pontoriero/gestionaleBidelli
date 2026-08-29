@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/crud-helpers.php';
 
 avviaSessione();
 richiediLogin();
@@ -8,11 +9,7 @@ $pdo = getConnessione();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['azione'] ?? '') === 'elimina') {
     richiediRuoloDsga();
-
-    if (!verificaCsrfToken($_POST['csrf_token'] ?? '')) {
-        header('Location: plessi.php?msg=errore');
-        exit;
-    }
+    verificaCsrfOFallisci('plessi.php?msg=errore');
 
     $plessoId = (int) ($_POST['id'] ?? 0);
 
@@ -21,19 +18,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['azione'] ?? '') === 'elimi
         exit;
     }
 
-    $stmt = $pdo->prepare('SELECT COUNT(*) FROM turni WHERE plesso_id = :id');
-    $stmt->execute(['id' => $plessoId]);
-    $haTurni = (int) $stmt->fetchColumn() > 0;
+    $esito = eliminaSeSenzaDipendenze($pdo, 'plessi', 'turni', 'plesso_id', $plessoId);
 
-    if ($haTurni) {
-        header('Location: plessi.php?msg=ha_turni');
-        exit;
-    }
-
-    $eliminato = $pdo->prepare('DELETE FROM plessi WHERE id = :id');
-    $eliminato->execute(['id' => $plessoId]);
-
-    header('Location: plessi.php?msg=' . ($eliminato->rowCount() > 0 ? 'eliminato' : 'errore'));
+    header('Location: plessi.php?msg=' . ($esito === 'ha_dipendenze' ? 'ha_turni' : $esito));
     exit;
 }
 
