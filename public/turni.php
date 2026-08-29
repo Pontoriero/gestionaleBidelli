@@ -71,10 +71,21 @@ function contaCopertura(array $righe): int
     return count(array_filter($righe, static fn($r) => in_array($r['stato'], ['pianificato', 'sostituito'], true)));
 }
 
+$messaggi = [
+    'assegnato' => ['tipo' => 'ok', 'testo' => 'Assegnazione salvata correttamente.'],
+];
+$msg = $messaggi[$_GET['msg'] ?? ''] ?? null;
+
 $paginaTitolo = 'Turni';
 $paginaAttiva = 'turni';
 require __DIR__ . '/../includes/header.php';
 ?>
+
+<?php if ($msg): ?>
+    <div class="form-error" style="<?= $msg['tipo'] === 'ok' ? 'background:var(--status-ok-bg);color:var(--status-ok);' : '' ?>">
+        <?= htmlspecialchars($msg['testo']) ?>
+    </div>
+<?php endif; ?>
 
 <div class="week-nav">
     <div class="week-nav__range"><?= htmlspecialchars($rangeTesto) ?></div>
@@ -116,8 +127,17 @@ require __DIR__ . '/../includes/header.php';
                                     <div class="turno-block">
                                         <div class="turno-block__head">
                                             <span class="turno-block__label"><?= $etichettaTurno ?></span>
-                                            <span class="badge <?= $ok ? 'badge--ok' : 'badge--danger' ?>">
-                                                <?= $ok ? 'Coperto' : 'Sotto soglia' ?> <?= $coperti ?>/<?= $minimo ?>
+                                            <span style="display:flex; align-items:center; gap:6px;">
+                                                <span class="badge <?= $ok ? 'badge--ok' : 'badge--danger' ?>">
+                                                    <?= $ok ? 'Coperto' : 'Sotto soglia' ?> <?= $coperti ?>/<?= $minimo ?>
+                                                </span>
+                                                <?php if (isDsga()): ?>
+                                                    <a class="turno-block__add"
+                                                       href="turno-assegna.php?plesso_id=<?= (int) $plesso['id'] ?>&data=<?= $giorno['data'] ?>&turno_giorno=<?= $turnoGiorno ?>&settimana=<?= $lunedi->format('Y-m-d') ?>"
+                                                       title="Aggiungi assegnazione">
+                                                        <i class="fa-solid fa-plus"></i>
+                                                    </a>
+                                                <?php endif; ?>
                                             </span>
                                         </div>
                                         <?php if ($righe): ?>

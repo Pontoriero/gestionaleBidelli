@@ -51,6 +51,7 @@ INSERT INTO turni (plesso_id, bidello_id, data, turno_giorno, stato) VALUES
 INSERT INTO turni (plesso_id, bidello_id, data, turno_giorno, stato) VALUES
 (3, 6, '2026-08-31', 'pomeriggio', 'assente');
 
--- Sostituzione: Anna (normalmente al Plesso Centrale) copre l'assenza di Sara al Plesso Sud
+-- Sostituzione: Marco (già al Plesso Sud la mattina) copre l'assenza di Sara nel pomeriggio,
+-- stesso plesso mattina/pomeriggio -> rispetta il vincolo "un plesso al giorno per bidello"
 INSERT INTO turni (plesso_id, bidello_id, data, turno_giorno, stato, sostituto_di_turno_id) VALUES
-(3, 2, '2026-08-31', 'pomeriggio', 'sostituito', LAST_INSERT_ID());
+(3, 5, '2026-08-31', 'pomeriggio', 'sostituito', LAST_INSERT_ID());
