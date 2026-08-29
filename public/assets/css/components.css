@@ -178,6 +178,10 @@
     background: #c17f34;
 }
 
+.btn--block {
+    width: 100%;
+}
+
 .btn--secondary {
     background: var(--surface);
     border-color: var(--border);
