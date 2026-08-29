@@ -29,7 +29,7 @@ $turniScopertiOggi = (int) $pdo->query(
     ) AS scoperti"
 )->fetchColumn();
 
-/* ---------- Settimana selezionata per il pannello ore (indipendente da turni.php) ---------- */
+/* ---------- Settimana selezionata, condivisa da copertura + ore bidelli ---------- */
 
 $parametroSettimana = $_GET['settimana'] ?? null;
 try {
@@ -42,15 +42,62 @@ $giornoIsoOre = (int) $riferimentoSettimana->format('N');
 $lunediOre = (clone $riferimentoSettimana)->modify('-' . ($giornoIsoOre - 1) . ' days');
 $venerdiOre = (clone $lunediOre)->modify('+4 days');
 
-$settimanaOrePrecedente = (clone $lunediOre)->modify('-7 days')->format('Y-m-d');
-$settimanaOreSuccessiva = (clone $lunediOre)->modify('+7 days')->format('Y-m-d');
+$settimanaPrecedente = (clone $lunediOre)->modify('-7 days')->format('Y-m-d');
+$settimanaSuccessiva = (clone $lunediOre)->modify('+7 days')->format('Y-m-d');
 
 $mesiAbbrOre = ['', 'gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
 if ($lunediOre->format('n') === $venerdiOre->format('n')) {
-    $rangeOreTesto = $lunediOre->format('j') . ' – ' . $venerdiOre->format('j') . ' ' . $mesiAbbrOre[(int) $venerdiOre->format('n')] . ' ' . $venerdiOre->format('Y');
+    $rangeTesto = $lunediOre->format('j') . ' – ' . $venerdiOre->format('j') . ' ' . $mesiAbbrOre[(int) $venerdiOre->format('n')] . ' ' . $venerdiOre->format('Y');
 } else {
-    $rangeOreTesto = $lunediOre->format('j') . ' ' . $mesiAbbrOre[(int) $lunediOre->format('n')] . ' – ' . $venerdiOre->format('j') . ' ' . $mesiAbbrOre[(int) $venerdiOre->format('n')] . ' ' . $venerdiOre->format('Y');
+    $rangeTesto = $lunediOre->format('j') . ' ' . $mesiAbbrOre[(int) $lunediOre->format('n')] . ' – ' . $venerdiOre->format('j') . ' ' . $mesiAbbrOre[(int) $venerdiOre->format('n')] . ' ' . $venerdiOre->format('Y');
 }
+
+$giorniAbbrOre = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven'];
+$giorniSettimana = [];
+for ($i = 0; $i < 5; $i++) {
+    $giorno = (clone $lunediOre)->modify("+{$i} days");
+    $giorniSettimana[] = ['data' => $giorno->format('Y-m-d'), 'etichetta' => $giorniAbbrOre[$i]];
+}
+
+/* ---------- Copertura settimanale (aggregata, un badge per giorno) ---------- */
+
+$plessi = $pdo->query(
+    'SELECT id, nome, min_bidelli_mattina, min_bidelli_pomeriggio
+     FROM plessi WHERE attivo = 1 ORDER BY nome'
+)->fetchAll();
+
+$stmtConteggi = $pdo->prepare(
+    "SELECT plesso_id, data, turno_giorno, COUNT(*) AS assegnati
+     FROM turni
+     WHERE data BETWEEN :inizio AND :fine
+       AND stato IN ('pianificato', 'sostituito')
+     GROUP BY plesso_id, data, turno_giorno"
+);
+$stmtConteggi->execute([
+    'inizio' => $lunediOre->format('Y-m-d'),
+    'fine' => $venerdiOre->format('Y-m-d'),
+]);
+
+$conteggi = [];
+foreach ($stmtConteggi->fetchAll() as $r) {
+    $conteggi[$r['plesso_id']][$r['data']][$r['turno_giorno']] = (int) $r['assegnati'];
+}
+
+function statoGiorno(array $plesso, array $conteggiGiorno): array
+{
+    $copertoMattina = ($conteggiGiorno['mattina'] ?? 0) >= (int) $plesso['min_bidelli_mattina'];
+    $copertoPomeriggio = ($conteggiGiorno['pomeriggio'] ?? 0) >= (int) $plesso['min_bidelli_pomeriggio'];
+
+    if ($copertoMattina && $copertoPomeriggio) {
+        return ['classe' => 'badge--ok', 'testo' => 'Coperto'];
+    }
+    if (!$copertoMattina && !$copertoPomeriggio) {
+        return ['classe' => 'badge--danger', 'testo' => 'Scoperto'];
+    }
+    return ['classe' => 'badge--warn', 'testo' => 'Parziale'];
+}
+
+/* ---------- Ore bidelli settimana selezionata ---------- */
 
 $bidelliOre = $pdo->query(
     'SELECT id, nome, cognome, ore_settimanali, ore_straordinario_max
@@ -93,67 +140,57 @@ require __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
+<div class="week-nav">
+    <div class="week-nav__range"><?= htmlspecialchars($rangeTesto) ?></div>
+    <div class="week-nav__controls">
+        <a class="btn btn--secondary" href="index.php?settimana=<?= $settimanaPrecedente ?>" title="Settimana precedente">
+            <i class="fa-solid fa-chevron-left"></i>
+        </a>
+        <a class="btn btn--secondary" href="index.php">Oggi</a>
+        <a class="btn btn--secondary" href="index.php?settimana=<?= $settimanaSuccessiva ?>" title="Settimana successiva">
+            <i class="fa-solid fa-chevron-right"></i>
+        </a>
+    </div>
+</div>
+
 <div class="panel">
     <div class="panel__header">
         <div class="panel__title">Copertura settimanale</div>
-        <div class="panel__sub">Placeholder statico</div>
+        <div class="panel__sub">Vista aggregata — dettaglio mattina/pomeriggio in Turni</div>
     </div>
     <table class="table">
         <thead>
             <tr>
                 <th>Plesso</th>
-                <th>Lun</th>
-                <th>Mar</th>
-                <th>Mer</th>
-                <th>Gio</th>
-                <th>Ven</th>
+                <?php foreach ($giorniSettimana as $giorno): ?>
+                    <th><?= $giorno['etichetta'] ?></th>
+                <?php endforeach; ?>
             </tr>
         </thead>
         <tbody>
-            <tr>
-                <td>Plesso Centrale</td>
-                <td><span class="badge badge--ok">Coperto</span></td>
-                <td><span class="badge badge--ok">Coperto</span></td>
-                <td><span class="badge badge--ok">Coperto</span></td>
-                <td><span class="badge badge--ok">Coperto</span></td>
-                <td><span class="badge badge--ok">Coperto</span></td>
-            </tr>
-            <tr>
-                <td>Plesso Nord</td>
-                <td><span class="badge badge--ok">Coperto</span></td>
-                <td><span class="badge badge--danger">Sotto soglia</span></td>
-                <td><span class="badge badge--ok">Coperto</span></td>
-                <td><span class="badge badge--ok">Coperto</span></td>
-                <td><span class="badge badge--ok">Coperto</span></td>
-            </tr>
-            <tr>
-                <td>Plesso Sud</td>
-                <td><span class="badge badge--warn">Sostituito</span></td>
-                <td><span class="badge badge--ok">Coperto</span></td>
-                <td><span class="badge badge--ok">Coperto</span></td>
-                <td><span class="badge badge--ok">Coperto</span></td>
-                <td><span class="badge badge--ok">Coperto</span></td>
-            </tr>
+            <?php foreach ($plessi as $plesso): ?>
+                <tr>
+                    <td><?= htmlspecialchars($plesso['nome']) ?></td>
+                    <?php foreach ($giorniSettimana as $giorno): ?>
+                        <?php $stato = statoGiorno($plesso, $conteggi[$plesso['id']][$giorno['data']] ?? []); ?>
+                        <td><span class="badge <?= $stato['classe'] ?>"><?= $stato['testo'] ?></span></td>
+                    <?php endforeach; ?>
+                </tr>
+            <?php endforeach; ?>
+
+            <?php if (!$plessi): ?>
+                <tr>
+                    <td colspan="6">Nessun plesso attivo.</td>
+                </tr>
+            <?php endif; ?>
         </tbody>
     </table>
 </div>
 
-<div class="note-banner">
-    <strong>Nota:</strong> la tabella "Copertura settimanale" sopra è dati hardcoded temporanei, non letti dal database. La colleghiamo ai turni reali nel prossimo step.
-</div>
-
 <div class="panel">
     <div class="panel__header">
-        <div class="panel__title">Ore bidelli — settimana corrente</div>
-        <div class="week-nav__controls">
-            <a class="btn btn--secondary" href="index.php?settimana=<?= $settimanaOrePrecedente ?>" title="Settimana precedente">
-                <i class="fa-solid fa-chevron-left"></i>
-            </a>
-            <a class="btn btn--secondary" href="index.php"><?= htmlspecialchars($rangeOreTesto) ?></a>
-            <a class="btn btn--secondary" href="index.php?settimana=<?= $settimanaOreSuccessiva ?>" title="Settimana successiva">
-                <i class="fa-solid fa-chevron-right"></i>
-            </a>
-        </div>
+        <div class="panel__title">Ore bidelli — settimana selezionata</div>
+        <div class="panel__sub"><?= count($bidelliOre) ?> bidelli attivi</div>
     </div>
 
     <div style="overflow-x:auto;">
