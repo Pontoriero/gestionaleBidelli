@@ -1,10 +1,33 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/crud-helpers.php';
 
 avviaSessione();
 richiediLogin();
 
 $pdo = getConnessione();
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['azione'] ?? '') === 'segna_assente') {
+    richiediRuoloDsga();
+
+    $settimanaRedirect = (string) ($_POST['settimana'] ?? '');
+    verificaCsrfOFallisci('turni.php?settimana=' . $settimanaRedirect . '&msg=errore');
+
+    $turnoId = (int) ($_POST['id'] ?? 0);
+
+    if ($turnoId <= 0) {
+        header('Location: turni.php?settimana=' . $settimanaRedirect . '&msg=errore');
+        exit;
+    }
+
+    // UPDATE condizionato sullo stato attuale: atomico, evita la finestra
+    // tra un SELECT di controllo e la UPDATE (race condition).
+    $stmt = $pdo->prepare("UPDATE turni SET stato = 'assente' WHERE id = :id AND stato = 'pianificato'");
+    $stmt->execute(['id' => $turnoId]);
+
+    header('Location: turni.php?settimana=' . $settimanaRedirect . '&msg=' . ($stmt->rowCount() > 0 ? 'segnato_assente' : 'errore'));
+    exit;
+}
 
 /* ---------- Calcolo settimana selezionata (lunedì-venerdì) ---------- */
 
@@ -72,7 +95,9 @@ function contaCopertura(array $righe): int
 }
 
 $messaggi = [
-    'assegnato' => ['tipo' => 'ok', 'testo' => 'Assegnazione salvata correttamente.'],
+    'assegnato'       => ['tipo' => 'ok', 'testo' => 'Assegnazione salvata correttamente.'],
+    'segnato_assente' => ['tipo' => 'ok', 'testo' => 'Turno segnato come assente.'],
+    'errore'          => ['tipo' => 'danger', 'testo' => 'Richiesta non valida o turno non più nello stato atteso. Riprova.'],
 ];
 $msg = $messaggi[$_GET['msg'] ?? ''] ?? null;
 
@@ -153,6 +178,20 @@ require __DIR__ . '/../includes/header.php';
                                                     ?>
                                                     <span class="<?= $classeChip ?>" title="<?= htmlspecialchars($riga['nome'] . ' ' . $riga['cognome'] . ' — ' . ucfirst($riga['stato'])) ?>">
                                                         <?= htmlspecialchars($riga['cognome'] . ' ' . mb_substr($riga['nome'], 0, 1) . '.') ?>
+                                                        <?php if (isDsga() && $riga['stato'] === 'pianificato'): ?>
+                                                            <span class="chip__azioni">
+                                                                <form class="inline-form" method="post" action="turni.php"
+                                                                      onsubmit="return confirm('Segnare assente ' + <?= htmlspecialchars(json_encode($riga['nome'] . ' ' . $riga['cognome']), ENT_QUOTES) ?> + '?');">
+                                                                    <input type="hidden" name="azione" value="segna_assente">
+                                                                    <input type="hidden" name="id" value="<?= (int) $riga['id'] ?>">
+                                                                    <input type="hidden" name="settimana" value="<?= $lunedi->format('Y-m-d') ?>">
+                                                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generaCsrfToken()) ?>">
+                                                                    <button type="submit" title="Segna assente">
+                                                                        <i class="fa-solid fa-user-slash"></i>
+                                                                    </button>
+                                                                </form>
+                                                            </span>
+                                                        <?php endif; ?>
                                                     </span>
                                                 <?php endforeach; ?>
                                             </div>
