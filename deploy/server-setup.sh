@@ -98,10 +98,16 @@ ENV
 chmod 640 "${PROJECT_DIR}/.env"
 
 echo "=== 6/7 — Permessi ==="
-chown -R www-data:www-data "${PROJECT_DIR}"
-find "${PROJECT_DIR}" -type d -exec chmod 755 {} \;
-find "${PROJECT_DIR}" -type f -exec chmod 644 {} \;
-chmod 640 "${PROJECT_DIR}/.env"
+# Sul server di produzione turni gira in un pool PHP-FPM isolato dagli altri siti:
+#   - utente php-turni, gruppo turni, socket /run/php/php8.4-fpm-turni.sock
+#     (/etc/php/8.4/fpm/pool.d/turni.conf, con open_basedir e sessioni proprie);
+#   - file root:turni, cartelle 2750, file 640, .env 640: PHP legge ma non modifica;
+#   - Nginx (www-data) legge solo public/, tramite ACL.
+# Qui NON si impostano piu' www-data:www-data ne' permessi 755/644: renderebbero il
+# codice e il .env leggibili dagli altri siti e annullerebbero l'isolamento.
+# Permessi e ACL li applica /usr/local/bin/deploy-turni.sh (vedi deploy/deploy.sh).
+echo "Permessi NON modificati: configurazione isolata (pool php-turni, owner root:turni)."
+echo "Dopo il setup lancia /usr/local/bin/deploy-turni.sh per applicare permessi e ACL."
 
 echo "=== 7/7 — Vhost Nginx ==="
 if [ -f "/etc/nginx/sites-available/${DOMAIN}" ]; then
