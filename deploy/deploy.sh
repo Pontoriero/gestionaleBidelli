@@ -1,35 +1,24 @@
 #!/usr/bin/env bash
 #
 # Deploy di aggiornamento per gestionale-turni-bidelli.
-# Da lanciare sul server ad ogni aggiornamento, dalla cartella del progetto:
 #
-#   cd /var/www/gestionale-turni-bidelli && ./deploy/deploy.sh
+# Sul server di produzione il progetto gira in un pool PHP-FPM isolato
+# (utente php-turni, gruppo turni): i permessi NON vanno più impostati a
+# www-data, altrimenti l'isolamento dagli altri siti si perde.
+# Il deploy vero è /usr/local/bin/deploy-turni.sh (git pull, permessi
+# root:turni, reload PHP-FPM, verifica): questo script si limita a chiamarlo.
 #
-# Nessun composer/artisan: progetto PHP puro, "deploy" = aggiornare i file
-# e riavviare PHP-FPM (per svuotare eventuale opcache).
+# Uso (da root): ./deploy/deploy.sh   oppure direttamente   deploy-turni.sh
 
 set -euo pipefail
 
-PROJECT_DIR="/var/www/gestionale-turni-bidelli"
-PHP_FPM_SERVICE="php8.4-fpm"
+DEPLOY_SERVER="/usr/local/bin/deploy-turni.sh"
 
-cd "${PROJECT_DIR}"
+if [[ -x "${DEPLOY_SERVER}" ]]; then
+    exec "${DEPLOY_SERVER}" "$@"
+fi
 
-echo "=== git pull ==="
-git pull --ff-only
-
-echo "=== permessi ==="
-chown -R www-data:www-data "${PROJECT_DIR}"
-find "${PROJECT_DIR}" -type d -exec chmod 755 {} \;
-find "${PROJECT_DIR}" -type f -exec chmod 644 {} \;
-chmod 640 "${PROJECT_DIR}/.env"
-
-# Se sql/schema.sql è cambiato in questo aggiornamento, applica le nuove
-# istruzioni a mano (mysql -u ... turni_bidelli < sql/schema.sql) — non è
-# automatico qui apposta: uno script che rilancia lo schema ad ogni deploy
-# rischia di eseguire ALTER/CREATE già applicati o inadatti a dati esistenti.
-
-echo "=== reload PHP-FPM (svuota opcache) ==="
-systemctl restart "${PHP_FPM_SERVICE}"
-
-echo "Deploy completato."
+echo "ERRORE: ${DEPLOY_SERVER} non trovato su questa macchina." >&2
+echo "Non eseguo chown/chmod: su questo server i permessi vanno gestiti" >&2
+echo "dallo script di deploy del server (pool PHP-FPM isolato)." >&2
+exit 1
